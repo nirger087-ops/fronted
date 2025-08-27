@@ -1,6 +1,6 @@
 let socket;
 let myUserId = null;
-const serverUrl = 'wss://secure-messenger-backend.onrender.com'; // ЗАМЕНИТЕ на ваш URL с Render!
+const serverUrl = 'wss://secure-messenger-backend-xjvb.onrender.com'; // ЗАМЕНИТЕ на ваш URL с Render!
 
 // Функция входа в чат
 function login() {
