@@ -8,7 +8,7 @@ class SecureMessenger {
         this.signedPreKeyPair = null;
         this.signedPreKeySignature = null;
         this.sessionKeys = {};
-        this.serverUrl = 'wss://secure-messenger-backend-xjvb.onrender.com'; // ЗАМЕНИТЕ на ваш URL!
+        this.serverUrl = 'wss://secure-messenger-backend-xjvb.onrender.com/ws';
         this.currentChat = null;
         this.chats = [];
         this.messages = {};
@@ -25,10 +25,39 @@ class SecureMessenger {
         }
     }
 
+    async checkServerConnection() {
+        try {
+            const API_BASE = this.serverUrl.replace('wss://', 'https://').replace('/ws', '');
+            const response = await fetch(`${API_BASE}/health`, {
+                method: 'GET',
+                mode: 'cors'
+            });
+            
+            if (response.ok) {
+                const health = await response.json();
+                this.showSystemMessage(`✅ Сервер доступен. Статус: ${health.status}`, "system");
+                return true;
+            } else {
+                this.showSystemMessage("❌ Сервер недоступен", "error");
+                return false;
+            }
+        } catch (error) {
+            this.showSystemMessage("❌ Ошибка подключения к серверу", "error");
+            return false;
+        }
+    }
+
     async login() {
         const username = document.getElementById('usernameInput').value.trim();
         if (!username) {
             this.showSystemMessage("⚠️ Введите имя пользователя", "error");
+            return;
+        }
+
+        // Проверяем соединение с сервером
+        const serverAvailable = await this.checkServerConnection();
+        if (!serverAvailable) {
+            this.showSystemMessage("⚠️ Сервер недоступен. Проверьте подключение.", "error");
             return;
         }
 
@@ -40,7 +69,6 @@ class SecureMessenger {
         document.getElementById('loginSection').style.display = 'none';
         document.getElementById('chatSection').style.display = 'flex';
 
-        // Показываем приветственное сообщение
         this.showSystemMessage("🎉 Добро пожаловать в Secure Messenger!", "system");
         this.showSystemMessage("🔑 Генерирую ключи безопасности...", "system");
 
@@ -48,7 +76,6 @@ class SecureMessenger {
         await this.uploadKeyBundle();
         this.connectWebSocket();
         
-        // Загружаем чаты после подключения
         setTimeout(() => this.loadChats(), 1000);
         
         this.showSystemMessage("✅ Готов к безопасному общению!", "system");
@@ -85,46 +112,66 @@ class SecureMessenger {
                 timestamp: new Date().toISOString()
             };
 
-            const response = await fetch(`https://your-render-app.onrender.com/keys/upload/${this.myUserId}`, {
+            // Используем тот же базовый URL, что и для WebSocket
+            const API_BASE = this.serverUrl.replace('wss://', 'https://').replace('/ws', '');
+            
+            const response = await fetch(`${API_BASE}/keys/upload/${this.myUserId}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(bundle)
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify(bundle),
+                mode: 'cors'
             });
 
-            if (response.ok) {
-                console.log("Ключи загружены на сервер");
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Server responded with ${response.status}: ${errorText}`);
             }
+
+            const result = await response.json();
+            console.log("Ключи загружены на сервер:", result);
+            this.showSystemMessage("✅ Ключи загружены на сервер", "system");
+            
         } catch (error) {
             console.error("Ошибка загрузки ключей:", error);
+            this.showSystemMessage(`❌ Ошибка загрузки ключей: ${error.message}`, "error");
         }
     }
 
     connectWebSocket() {
-        this.socket = new WebSocket(`${this.serverUrl}/ws/${this.myUserId}`);
-
-        this.socket.onopen = () => {
-            this.showSystemMessage("✅ Подключение к secure-серверу установлено", "system");
-        };
-
-        this.socket.onmessage = async (event) => {
-            try {
-                const messageData = JSON.parse(event.data);
-                await this.handleIncomingMessage(messageData);
-            } catch (error) {
-                console.error("Ошибка обработки сообщения:", error);
-                this.showSystemMessage("❌ Ошибка обработки входящего сообщения", "error");
-            }
-        };
-
-        this.socket.onclose = () => {
-            this.showSystemMessage("🔌 Соединение разорвано. Попытка переподключения...", "system");
-            setTimeout(() => this.connectWebSocket(), 3000);
-        };
-
-        this.socket.onerror = (error) => {
-            console.error("WebSocket error:", error);
-            this.showSystemMessage("❌ Ошибка соединения", "error");
-        };
+        try {
+            this.socket = new WebSocket(`${this.serverUrl}/${this.myUserId}`);
+            
+            this.socket.onopen = () => {
+                this.showSystemMessage("✅ WebSocket соединение установлено", "system");
+            };
+            
+            this.socket.onmessage = async (event) => {
+                try {
+                    const messageData = JSON.parse(event.data);
+                    await this.handleIncomingMessage(messageData);
+                } catch (error) {
+                    console.error("Ошибка обработки сообщения:", error);
+                    this.showSystemMessage("❌ Ошибка обработки входящего сообщения", "error");
+                }
+            };
+            
+            this.socket.onclose = () => {
+                this.showSystemMessage("🔌 Соединение разорвано. Попытка переподключения...", "system");
+                setTimeout(() => this.connectWebSocket(), 3000);
+            };
+            
+            this.socket.onerror = (error) => {
+                console.error("WebSocket error:", error);
+                this.showSystemMessage("❌ Ошибка WebSocket соединения", "error");
+            };
+            
+        } catch (error) {
+            console.error("WebSocket connection error:", error);
+            this.showSystemMessage("❌ Ошибка создания WebSocket соединения", "error");
+        }
     }
 
     async handleIncomingMessage(messageData) {
@@ -180,11 +227,29 @@ class SecureMessenger {
         try {
             this.showSystemMessage(`📡 Запрашиваю ключи пользователя ${otherUserId}...`, "system");
             
-            // Запрос bundle другого пользователя
-            const response = await fetch(`https://your-render-app.onrender.com/keys/bundle/${otherUserId}`);
-            if (!response.ok) throw new Error("Пользователь не найден или ключи недоступны");
+            // Используем тот же базовый URL, что и для WebSocket, но с HTTPS
+            const API_BASE = this.serverUrl.replace('wss://', 'https://').replace('/ws', '');
+            
+            const response = await fetch(`${API_BASE}/keys/bundle/${otherUserId}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                mode: 'cors'
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`HTTP error! status: ${response.status}: ${errorText}`);
+            }
             
             const bundle = await response.json();
+            
+            // Проверяем необходимые поля в bundle
+            if (!bundle.identityKey || !bundle.signedPreKey || !bundle.signature) {
+                throw new Error("Неполный bundle ключей от сервера");
+            }
+            
             const ikOther = this.sodium.from_base64(bundle.identityKey);
             const spkOther = this.sodium.from_base64(bundle.signedPreKey);
             const sigOther = this.sodium.from_base64(bundle.signature);
@@ -218,6 +283,7 @@ class SecureMessenger {
 
         } catch (error) {
             console.error("X3DH error:", error);
+            this.showSystemMessage(`❌ Ошибка X3DH: ${error.message}`, "error");
             throw error;
         }
     }
@@ -226,17 +292,30 @@ class SecureMessenger {
         try {
             this.showSystemMessage("📋 Загружаю список чатов...", "system");
             
-            // В реальном приложении здесь был бы запрос к API
-            // Пока имитируем загрузку чатов
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            const API_BASE = this.serverUrl.replace('wss://', 'https://').replace('/ws', '');
+            const response = await fetch(`${API_BASE}/chats/${this.myUserId}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                mode: 'cors'
+            });
             
-            // Для демонстрации - пустой список чатов
-            this.chats = [];
-            this.renderChatList();
+            if (response.ok) {
+                this.chats = await response.json();
+                this.renderChatList();
+                this.showSystemMessage("✅ Список чатов загружен", "system");
+            } else {
+                this.showSystemMessage("ℹ️ Чатов пока нет", "system");
+                this.chats = [];
+                this.renderChatList();
+            }
             
         } catch (error) {
             console.error("Error loading chats:", error);
-            this.showSystemMessage("❌ Ошибка загрузки чатов", "error");
+            this.showSystemMessage("ℹ️ Нет активных чатов", "system");
+            this.chats = [];
+            this.renderChatList();
         }
     }
 
@@ -255,16 +334,16 @@ class SecureMessenger {
         }
 
         chatList.innerHTML = this.chats.map(chat => `
-            <div class="chat-item" onclick="messenger.openChat('${chat.userId}')" 
+            <div class="chat-item" onclick="messenger.openChat('${chat.other_user_id}')" 
                  style="padding: 12px; border-bottom: 1px solid #e5e7eb; cursor: pointer; transition: background 0.2s;"
                  onmouseover="this.style.background='#f1f5f9'" 
                  onmouseout="this.style.background='transparent'">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <strong style="color: #1f2937;">${chat.username}</strong>
-                    <span style="font-size: 12px; color: #64748b;">${this.formatTime(chat.lastMessageTime)}</span>
+                    <strong style="color: #1f2937;">${chat.other_user_id}</strong>
+                    <span style="font-size: 12px; color: #64748b;">${this.formatTime(chat.last_message_time)}</span>
                 </div>
                 <p style="margin: 4px 0 0 0; font-size: 14px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                    ${chat.lastMessage}
+                    ${chat.last_message_preview || 'Новое сообщение'}
                 </p>
             </div>
         `).join('');
@@ -272,12 +351,11 @@ class SecureMessenger {
 
     addChatToList(userId) {
         // Проверяем, нет ли уже такого чата
-        if (!this.chats.some(chat => chat.userId === userId)) {
-            this.chats.push({
-                userId: userId,
-                username: userId.split('_')[0], // Извлекаем имя из ID
-                lastMessage: 'Новое сообщение',
-                lastMessageTime: new Date()
+        if (!this.chats.some(chat => chat.other_user_id === userId)) {
+            this.chats.unshift({
+                other_user_id: userId,
+                last_message_time: new Date().toISOString(),
+                last_message_preview: 'Новое сообщение'
             });
             this.renderChatList();
         }
@@ -286,9 +364,9 @@ class SecureMessenger {
     updateChatList() {
         // Обновляем время последнего сообщения для активного чата
         if (this.currentChat) {
-            const chat = this.chats.find(c => c.userId === this.currentChat);
+            const chat = this.chats.find(c => c.other_user_id === this.currentChat);
             if (chat) {
-                chat.lastMessageTime = new Date();
+                chat.last_message_time = new Date().toISOString();
                 this.renderChatList();
             }
         }
@@ -310,18 +388,44 @@ class SecureMessenger {
 
     async loadChatHistory(userId) {
         try {
-            // В реальном приложении здесь был бы запрос к API /messages
-            // Показываем сообщение о загрузке
             this.showSystemMessage("🕒 Загружаю историю сообщений...", "system");
             
-            // Имитация загрузки
-            await new Promise(resolve => setTimeout(resolve, 500));
+            const API_BASE = this.serverUrl.replace('wss://', 'https://').replace('/ws', '');
+            const response = await fetch(`${API_BASE}/messages/${this.myUserId}/${userId}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                mode: 'cors'
+            });
             
-            // Если есть сообщения в истории - показываем их
-            if (this.messages[userId]) {
-                this.messages[userId].forEach(msg => {
-                    this.showMessage(msg.sender === this.myUserId ? "Вы" : msg.sender, msg.text, msg.type);
+            if (response.ok) {
+                const messages = await response.json();
+                
+                // Очищаем текущие сообщения
+                this.messages[userId] = [];
+                
+                // Показываем сообщения в хронологическом порядке
+                messages.reverse().forEach(msg => {
+                    this.saveMessageToHistory(userId, {
+                        sender: msg.sender_id,
+                        text: msg.encrypted_content, // В реальности нужно расшифровать
+                        timestamp: new Date(msg.timestamp),
+                        type: msg.sender_id === this.myUserId ? 'sent' : 'received'
+                    });
+                    
+                    const displayText = msg.sender_id === this.myUserId ? 
+                        `Вы: ${msg.encrypted_content}` : 
+                        `${msg.sender_id}: ${msg.encrypted_content}`;
+                    
+                    this.showMessage(
+                        msg.sender_id === this.myUserId ? "Вы" : msg.sender_id,
+                        msg.encrypted_content,
+                        msg.sender_id === this.myUserId ? 'sent' : 'received'
+                    );
                 });
+                
+                this.showSystemMessage("✅ История сообщений загружена", "system");
             }
             
         } catch (error) {
