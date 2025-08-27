@@ -8,7 +8,7 @@ class SecureMessenger {
         this.signedPreKeyPair = null;
         this.signedPreKeySignature = null;
         this.sessionKeys = {};
-        this.serverUrl = 'wss://your-render-app.onrender.com'; // ЗАМЕНИТЕ на ваш URL!
+        this.serverUrl = 'wss://secure-messenger-backend-xjvb.onrender.com'; // ЗАМЕНИТЕ на ваш URL!
         this.currentChat = null;
         this.chats = [];
         this.messages = {};
