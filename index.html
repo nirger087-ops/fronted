@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Messenger</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        #chatbox { border: 1px solid #ccc; height: 400px; overflow-y: scroll; padding: 10px; margin-bottom: 10px; }
+        #messageInput { width: 70%; padding: 10px; }
+        button { padding: 10px 20px; }
+    </style>
+</head>
+<body>
+    <h1>🔒 Secure Messenger</h1>
+    <div id="loginSection">
+        <input type="text" id="usernameInput" placeholder="Choose your username">
+        <button onclick="login()">Join Chat</button>
+    </div>
+
+    <div id="chatSection" style="display: none;">
+        <h2>Welcome, <span id="currentUser"></span>!</h2>
+        <div id="chatbox"></div>
+        <div>
+            <input type="text" id="messageInput" placeholder="Type your encrypted message...">
+            <input type="text" id="recipientInput" placeholder="Recipient ID">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+        <p><strong>Your ID:</strong> <code id="myUserId"></code></p>
+        <p>Share this ID with someone to receive messages.</p>
+    </div>
+
+    <!-- Подключаем библиотеку для шифрования -->
+    <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers-sumo@0.7.11/dist/sodium-sumo.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
