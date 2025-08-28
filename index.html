@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secure Messenger</title>
     <style>
+        /* Ваши стили остаются без изменений */
         * {
             margin: 0;
             padding: 0;
@@ -112,7 +113,6 @@
         #chatSection {
             display: none;
             height: 600px;
-            display: flex;
             flex-direction: row;
         }
 
@@ -296,6 +296,7 @@
         .message-input-container button {
             padding: 16px 24px;
             min-width: auto;
+            height: fit-content;
         }
 
         /* Scrollbar styling */
@@ -391,7 +392,7 @@
                     
                     <div class="user-id-section">
                         <h3>Ваш ID для подключения:</h3>
-                        <code id="myUserId"></code>
+                        <code id="myUserId">Не установлено</code>
                         <p>Поделитесь этим ID с собеседником для обмена сообщениями</p>
                     </div>
                 </div>
@@ -404,7 +405,7 @@
                     </div>
                     
                     <div class="message-input-container">
-                        <input type="text" id="messageInput" placeholder="Введите сообщение..." onkeypress="if(event.key==='Enter') sendMessage()">
+                        <input type="text" id="messageInput" placeholder="Введите сообщение...">
                         <button onclick="sendMessage()">Отправить</button>
                     </div>
                 </div>
@@ -420,19 +421,15 @@
                 this.socket = null;
                 this.myUserId = null;
                 this.myUsername = null;
-                this.identityKeyPair = null;
-                this.signedPreKeyPair = null;
-                this.signedPreKeySignature = null;
-                this.sessionKeys = {};
                 this.serverUrl = 'wss://secure-messenger-backend-xjvb.onrender.com';
                 this.currentChat = null;
                 this.chats = [];
                 this.messages = {};
                 
                 // Новые свойства для пула ключей
-                this.keyPool = {}; // { userId: [key1, key2, ...] }
-                this.usedKeys = new Set(); // track used key IDs
-                this.keyPoolSize = 1000; // количество ключей в пуле
+                this.keyPool = {};
+                this.usedKeys = new Set();
+                this.keyPoolSize = 1000;
             }
 
             async init() {
@@ -447,15 +444,18 @@
             }
 
             async login() {
-                // Проверяем существование элементов
                 const usernameInput = document.getElementById('usernameInput');
-                const currentUserSpan = document.getElementById('currentUser');
                 const myUserIdCode = document.getElementById('myUserId');
                 const loginSection = document.getElementById('loginSection');
                 const chatSection = document.getElementById('chatSection');
                 
-                if (!usernameInput || !currentUserSpan || !myUserIdCode || !loginSection || !chatSection) {
-                    console.error("HTML elements not found!");
+                if (!usernameInput || !myUserIdCode || !loginSection || !chatSection) {
+                    console.error("HTML elements not found:", {
+                        usernameInput: !!usernameInput,
+                        myUserIdCode: !!myUserIdCode,
+                        loginSection: !!loginSection,
+                        chatSection: !!chatSection
+                    });
                     this.showSystemMessage("❌ Ошибка загрузки интерфейса", "error");
                     return;
                 }
@@ -466,7 +466,6 @@
                     return;
                 }
 
-                // Проверяем соединение с сервером
                 const serverAvailable = await this.checkServerConnection();
                 if (!serverAvailable) {
                     this.showSystemMessage("⚠️ Сервер недоступен. Проверьте подключение.", "error");
@@ -476,7 +475,7 @@
                 this.myUsername = username;
                 this.myUserId = username + '_' + Math.random().toString(36).substr(2, 8);
                 
-                document.getElementById('currentUser').textContent = username;
+                // Обновляем отображение
                 document.getElementById('myUserId').textContent = this.myUserId;
                 document.getElementById('loginSection').style.display = 'none';
                 document.getElementById('chatSection').style.display = 'flex';
@@ -484,7 +483,6 @@
                 this.showSystemMessage("🎉 Добро пожаловать в Secure Messenger!", "system");
                 this.showSystemMessage("🔑 Генерирую ключи безопасности...", "system");
 
-                // Генерируем пул ключей вместо X3DH
                 await this.generateKeyPool();
                 this.connectWebSocket();
                 
@@ -533,7 +531,6 @@
                     this.keyPool[this.myUserId] = pool;
                     this.showSystemMessage(`✅ Сгенерировано ${this.keyPoolSize} ключей`, "system");
                     
-                    // Отправляем пул ключей на сервер
                     await this.uploadKeyPool();
                     
                 } catch (error) {
@@ -554,7 +551,6 @@
                         method: 'POST',
                         headers: { 
                             'Content-Type': 'application/json',
-                            'Accept': 'application/json'
                         },
                         body: JSON.stringify({ keys: poolData }),
                         mode: 'cors'
@@ -603,21 +599,17 @@
                         throw new Error("No keys available for encryption");
                     }
 
-                    // Ищем неиспользованный ключ
                     const availableKeys = pool.filter(key => !key.used);
                     if (availableKeys.length === 0) {
                         throw new Error("All keys have been used");
                     }
 
-                    // Выбираем случайный ключ
                     const randomIndex = Math.floor(Math.random() * availableKeys.length);
                     const selectedKey = availableKeys[randomIndex];
                     
-                    // Помечаем ключ как использованный
                     selectedKey.used = true;
                     this.usedKeys.add(selectedKey.id);
 
-                    // Шифруем сообщение
                     const nonce = this.sodium.randombytes_buf(this.sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES);
                     const ciphertext = this.sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
                         plaintext,
@@ -627,12 +619,10 @@
                         selectedKey.key
                     );
 
-                    // Комбинируем nonce + ciphertext + key ID
                     const combined = new Uint8Array(nonce.length + ciphertext.length + 4);
                     combined.set(nonce);
                     combined.set(ciphertext, nonce.length);
                     
-                    // Добавляем ID ключа (4 байта)
                     const keyIdBytes = new Uint8Array(new Uint32Array([selectedKey.id]).buffer);
                     combined.set(keyIdBytes, nonce.length + ciphertext.length);
 
@@ -648,18 +638,15 @@
                 try {
                     const combined = this.sodium.from_base64(encodedMessage);
                     
-                    // Извлекаем компоненты
                     const nonce = combined.slice(0, this.sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES);
                     const ciphertext = combined.slice(
                         this.sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES, 
                         combined.length - 4
                     );
                     
-                    // Извлекаем ID ключа (последние 4 байта)
                     const keyIdBytes = combined.slice(combined.length - 4);
                     const keyId = new Uint32Array(keyIdBytes.buffer)[0];
                     
-                    // Находим ключ по ID
                     const pool = this.keyPool[userId];
                     if (!pool) {
                         throw new Error("Key pool not found");
@@ -670,7 +657,6 @@
                         throw new Error(`Key with ID ${keyId} not found`);
                     }
 
-                    // Расшифровываем
                     const decrypted = this.sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
                         null,
                         ciphertext,
@@ -702,7 +688,6 @@
                 }
 
                 try {
-                    // Загружаем пул ключей получателя, если еще нет
                     if (!this.keyPool[recipientId]) {
                         this.showSystemMessage("📥 Загружаю ключи получателя...", "system");
                         const success = await this.downloadKeyPool(recipientId);
@@ -710,21 +695,17 @@
                             throw new Error("Не удалось загрузить ключи получателя");
                         }
                         
-                        // Добавляем чат в список
                         this.addChatToList(recipientId);
                     }
 
-                    // Шифруем сообщение
                     const encrypted = this.encryptMessageWithRandomKey(messageText, recipientId);
                     
-                    // Отправляем
                     this.socket.send(JSON.stringify({
                         to: recipientId,
                         from: this.myUserId,
                         encrypted_message: encrypted
                     }));
 
-                    // Сохраняем сообщение в историю
                     this.saveMessageToHistory(recipientId, {
                         sender: this.myUserId,
                         text: messageText,
@@ -732,16 +713,10 @@
                         type: 'sent'
                     });
 
-                    // Показываем сообщение у себя
                     this.showMessage("Вы", messageText, "sent");
-                    
-                    // Обновляем список чатов
                     this.updateChatList();
                     
-                    // Очищаем поле ввода
                     document.getElementById('messageInput').value = '';
-                    
-                    // Фокусируемся обратно на поле ввода
                     document.getElementById('messageInput').focus();
 
                 } catch (error) {
@@ -751,11 +726,9 @@
             }
 
             async handleIncomingMessage(messageData) {
-                // Пропускаем свои же сообщения (если они приходят обратно)
                 if (messageData.from === this.myUserId) return;
 
                 try {
-                    // Загружаем пул ключей отправителя, если еще нет
                     if (!this.keyPool[messageData.from]) {
                         this.showSystemMessage("📥 Загружаю ключи отправителя...", "system");
                         const success = await this.downloadKeyPool(messageData.from);
@@ -763,17 +736,14 @@
                             throw new Error("Не удалось загрузить ключи отправителя");
                         }
                         
-                        // Добавляем чат в список
                         this.addChatToList(messageData.from);
                     }
 
-                    // Расшифровываем
                     const decrypted = this.decryptMessageWithKeyId(
                         messageData.encrypted_message, 
                         messageData.from
                     );
                     
-                    // Сохраняем сообщение в историю
                     this.saveMessageToHistory(messageData.from, {
                         sender: messageData.from,
                         text: decrypted,
@@ -782,11 +752,7 @@
                     });
                     
                     this.showMessage(messageData.from, decrypted, "received");
-                    
-                    // Обновляем список чатов
                     this.updateChatList();
-                    
-                    // Проигрываем звук уведомления
                     this.playNotificationSound();
                     
                 } catch (error) {
@@ -797,7 +763,7 @@
 
             connectWebSocket() {
                 try {
-                    this.socket = new WebSocket(`${this.serverUrl}/${this.myUserId}`);
+                    this.socket = new WebSocket(`${this.serverUrl}/ws/${this.myUserId}`);
                     
                     this.socket.onopen = () => {
                         this.showSystemMessage("✅ WebSocket соединение установлено", "system");
@@ -891,7 +857,6 @@
             }
 
             addChatToList(userId) {
-                // Проверяем, нет ли уже такого чата
                 if (!this.chats.some(chat => chat.other_user_id === userId)) {
                     this.chats.unshift({
                         other_user_id: userId,
@@ -903,7 +868,6 @@
             }
 
             updateChatList() {
-                // Обновляем время последнего сообщения для активного чата
                 if (this.currentChat) {
                     const chat = this.chats.find(c => c.other_user_id === this.currentChat);
                     if (chat) {
@@ -918,10 +882,7 @@
                 document.getElementById('recipientInput').value = userId;
                 document.getElementById('chatTitle').textContent = `Чат с ${userId.split('_')[0]}`;
                 
-                // Очищаем чат
                 this.clearChat();
-                
-                // Загружаем историю сообщений
                 await this.loadChatHistory(userId);
                 
                 this.showSystemMessage(`💬 Открыт чат с ${userId.split('_')[0]}`, "system");
@@ -942,22 +903,15 @@
                     
                     if (response.ok) {
                         const messages = await response.json();
-                        
-                        // Очищаем текущие сообщения
                         this.messages[userId] = [];
                         
-                        // Показываем сообщения в хронологическом порядке
                         messages.reverse().forEach(msg => {
                             this.saveMessageToHistory(userId, {
                                 sender: msg.sender_id,
-                                text: msg.encrypted_content, // В реальности нужно расшифровать
+                                text: msg.encrypted_content,
                                 timestamp: new Date(msg.timestamp),
                                 type: msg.sender_id === this.myUserId ? 'sent' : 'received'
                             });
-                            
-                            const displayText = msg.sender_id === this.myUserId ? 
-                                `Вы: ${msg.encrypted_content}` : 
-                                `${msg.sender_id}: ${msg.encrypted_content}`;
                             
                             this.showMessage(
                                 msg.sender_id === this.myUserId ? "Вы" : msg.sender_id,
@@ -992,16 +946,16 @@
 
             addMessageToChatbox(sender, text, cssClass) {
                 const chatbox = document.getElementById('chatbox');
+                if (!chatbox) return;
+                
                 const messageElement = document.createElement('div');
                 messageElement.className = `message ${cssClass}`;
                 
-                // Форматируем сообщение
                 const formattedText = this.formatMessage(text);
                 const displayName = sender === this.myUserId ? "Вы" : sender;
                 
                 messageElement.innerHTML = `<strong>${displayName}:</strong> ${formattedText}`;
                 
-                // Анимация появления
                 messageElement.style.opacity = '0';
                 messageElement.style.transform = 'translateY(10px)';
                 messageElement.style.transition = 'all 0.3s ease';
@@ -1009,7 +963,6 @@
                 chatbox.appendChild(messageElement);
                 chatbox.scrollTop = chatbox.scrollHeight;
                 
-                // Анимируем появление
                 setTimeout(() => {
                     messageElement.style.opacity = '1';
                     messageElement.style.transform = 'translateY(0)';
@@ -1024,7 +977,6 @@
             }
 
             formatMessage(text) {
-                // Простое форматирование текста
                 return text
                     .replace(/\n/g, '<br>')
                     .replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" style="color: inherit; text-decoration: underline;">$1</a>');
@@ -1041,7 +993,6 @@
             }
 
             playNotificationSound() {
-                // Простой звук уведомления
                 try {
                     const context = new (window.AudioContext || window.webkitAudioContext)();
                     const oscillator = context.createOscillator();
@@ -1061,6 +1012,11 @@
             }
 
             copyUserId() {
+                if (!this.myUserId) {
+                    this.showSystemMessage("❌ ID еще не сгенерирован", "error");
+                    return;
+                }
+                
                 navigator.clipboard.writeText(this.myUserId).then(() => {
                     this.showSystemMessage("✅ ID скопирован в буфер обмена", "system");
                 }).catch(err => {
@@ -1106,17 +1062,17 @@
             }
         });
 
-        // Адаптивный дизайн - скрываем/показываем sidebar на мобильных
+        // Адаптивный дизайн
         function handleResize() {
             const sidebar = document.querySelector('.chat-sidebar');
             const mainArea = document.querySelector('.main-chat-area');
             
             if (window.innerWidth <= 768) {
-                sidebar.style.display = 'none';
-                mainArea.style.flex = '1';
+                if (sidebar) sidebar.style.display = 'none';
+                if (mainArea) mainArea.style.flex = '1';
             } else {
-                sidebar.style.display = 'flex';
-                mainArea.style.flex = '1';
+                if (sidebar) sidebar.style.display = 'flex';
+                if (mainArea) mainArea.style.flex = '1';
             }
         }
 
